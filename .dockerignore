@@ -1,0 +1,17 @@
+.git/
+.github/
+.vscode/
+.idea/
+.venv/
+__pycache__/
+.pytest_cache/
+tests/
+scripts/
+gateway/
+*.md
+.env
+.env.*
+!.env.example
+*.log
+*.err
+qr.png

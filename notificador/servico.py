@@ -7,6 +7,7 @@ Recebe banco, cliente do WhatsApp e a função que busca a foto por parâmetro
 
 import logging
 import os
+import threading
 import time
 from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional
@@ -49,6 +50,10 @@ class Notificador:
         self.cfg = cfg
         self.buscar_foto = buscar_foto
         self._ids: Dict[str, Optional[str]] = {}  # cache número -> ID do WhatsApp
+        # POST /notificar seta este evento: o laço acorda na hora, sem esperar o intervalo.
+        self.acordar = threading.Event()
+        # Resumo do último ciclo, lido pelo GET /saude (o banco só é usado pela thread do laço).
+        self.ultimo_ciclo = {"ok": None, "em": None, "enviados": 0, "erro": None}
 
     # ------------------------------------------------------------ um ciclo
     def ciclo(self) -> int:
@@ -118,10 +123,16 @@ class Notificador:
                         "até ler o QR Code (ver README).", self.cfg.sessao, self.cfg.whatsapp_url)
         espera = self.cfg.intervalo_s
         while True:
+            self.acordar.clear()
             try:
-                self.ciclo()
+                enviados = self.ciclo()
+                self.ultimo_ciclo = {"ok": True, "em": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "enviados": enviados, "erro": None}
                 espera = self.cfg.intervalo_s
-            except Exception:  # noqa: BLE001 - banco fora do ar etc.: registra e tenta de novo depois
+            except Exception as erro:  # noqa: BLE001 - banco fora do ar etc.: registra e tenta de novo depois
                 log.exception("Erro no ciclo; nova tentativa em %ss", espera)
+                self.ultimo_ciclo = {"ok": False, "em": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                     "enviados": 0, "erro": str(erro)[:200]}
                 espera = min(espera * 2, 60)
-            time.sleep(espera)
+            # Dorme até o próximo ciclo OU até o Sentinela chamar POST /notificar.
+            self.acordar.wait(timeout=espera)

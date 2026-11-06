@@ -39,6 +39,25 @@ class ClienteWhatsApp:
             raise ErroWhatsApp(f"{metodo} {caminho}: HTTP {resposta.status_code} {dados.get('error') or dados}")
         return dados
 
+    def iniciar_sessao(self) -> None:
+        try:
+            self._requisitar("GET", "/session/start")
+        except ErroWhatsApp:
+            pass  # "já iniciada" também volta como erro; o status é conferido depois
+
+    def encerrar_sessao(self) -> None:
+        try:
+            self._requisitar("GET", "/session/terminate")
+        except ErroWhatsApp:
+            pass
+
+    def qr(self) -> Optional[str]:
+        """Texto do QR Code atual (None se ainda não gerado ou já lido)."""
+        try:
+            return self._requisitar("GET", "/session/qr").get("qr")
+        except ErroWhatsApp:
+            return None
+
     def conectado(self) -> bool:
         """True se a sessão do WhatsApp está pronta para enviar (QR já lido)."""
         try:
