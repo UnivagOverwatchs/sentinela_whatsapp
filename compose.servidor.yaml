@@ -1,0 +1,42 @@
+# compose.servidor.yaml - SERVIDOR: usa as imagens prontas do Docker Hub (sem build, sem código-fonte).
+#
+# Na pasta do servidor só precisam existir este arquivo e o .env:
+#   docker compose -f compose.servidor.yaml pull
+#   docker compose -f compose.servidor.yaml up -d
+#   docker compose -f compose.servidor.yaml run --rm notificador --parear   # 1ª vez: QR Code
+#   docker compose -f compose.servidor.yaml logs -f notificador
+#
+# Atualizar depois de um novo push: repetir "pull" e "up -d".
+
+services:
+  whatsapp-api:
+    image: hiannyurt/whatsapp-api:1.34.7
+    restart: unless-stopped
+    environment:
+      API_KEY: ${WHATSAPP_API_KEY:?defina WHATSAPP_API_KEY no .env}
+      BASE_WEBHOOK_URL: http://localhost:3000/localCallbackExample
+      ENABLE_LOCAL_CALLBACK_EXAMPLE: "TRUE"
+      # Não precisamos receber mensagens/confirmações: reduz carga e log.
+      DISABLED_CALLBACKS: "message|message_ack|message_create|message_reaction|media_uploaded|loading_screen|change_state|contact_changed|chat_removed|chat_archived|unread_count"
+      SET_MESSAGES_AS_SEEN: "FALSE"
+      RECOVER_SESSIONS: "TRUE"
+      ENABLE_SWAGGER_ENDPOINT: "FALSE"
+      TZ: America/Cuiaba
+    volumes:
+      - whatsapp_sessoes:/usr/src/app/sessions   # sessão do WhatsApp sobrevive a reinícios/atualizações
+    # Sem "ports": a API do WhatsApp fica acessível só pelo notificador, dentro da rede do compose.
+
+  notificador:
+    image: hiannyurt/sentinela-notificador:1.0.0
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      WHATSAPP_API_URL: http://whatsapp-api:3000
+    ports:
+      - "8100:8100"   # POST /notificar (chamado pelo Sentinela) e GET /saude
+    depends_on:
+      whatsapp-api:
+        condition: service_healthy
+
+volumes:
+  whatsapp_sessoes:

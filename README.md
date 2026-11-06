@@ -44,17 +44,30 @@ Regras importantes:
 
 ## Subir no servidor com Docker (recomendado)
 
-No servidor (Linux com Docker e Docker Compose):
+As imagens ficam no Docker Hub (`hiannyurt/whatsapp-api` e `hiannyurt/sentinela-notificador`).
+
+**1. No PC de desenvolvimento** (com `docker login`), a cada versão nova:
+
+```powershell
+docker compose build
+docker compose push
+```
+
+**2. No servidor** só precisam existir `compose.servidor.yaml` e `.env` (não precisa clonar o código):
 
 ```bash
-git clone https://github.com/UnivagOverwatchs/sentinela_whatsapp.git
-cd sentinela_whatsapp
-cp .env.example .env        # preencha: PG* (banco), WHATSAPP_API_KEY, NOTIF_TOKEN, SENTINELA_API_URL
-docker compose up -d --build
-docker compose run --rm notificador --parear   # 1ª vez: QR Code no terminal, leia no celular
-docker compose ps                              # os dois serviços devem ficar "healthy"
-curl http://localhost:8100/saude               # {"whatsapp_conectado": true, ...}
+mkdir sentinela_whatsapp && cd sentinela_whatsapp
+# copie compose.servidor.yaml e crie o .env a partir do .env.example
+docker compose -f compose.servidor.yaml pull
+docker compose -f compose.servidor.yaml up -d
+docker compose -f compose.servidor.yaml run --rm notificador --parear   # 1ª vez: QR Code no terminal
+docker compose -f compose.servidor.yaml ps                              # os dois "healthy"
+curl http://localhost:8100/saude                                        # {"whatsapp_conectado": true, ...}
 ```
+
+Atualizar o servidor depois de um novo push: `pull` e `up -d` de novo (a sessão do WhatsApp é mantida).
+
+> Imagens públicas no Docker Hub não contêm segredo nenhum: senha do banco, chave e token ficam só no `.env` do servidor.
 
 | Serviço | Imagem | Porta |
 |---|---|---|
@@ -65,7 +78,7 @@ curl http://localhost:8100/saude               # {"whatsapp_conectado": true, ..
 - Gere o token com `python -c "import secrets; print(secrets.token_urlsafe(32))"` e use o **mesmo valor**
   em `NOTIF_TOKEN` (aqui) e `NOTIFICADOR_TOKEN` (Sentinela).
 - Libere a porta 8100 no firewall **só para o IP do servidor do Sentinela**.
-- Atualizar: `git pull && docker compose up -d --build`. Logs: `docker compose logs -f notificador`.
+- Logs: `docker compose -f compose.servidor.yaml logs -f notificador`.
 
 ### Ligando o Sentinela
 

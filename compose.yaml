@@ -1,14 +1,16 @@
-# compose.yaml - Sobe a API do WhatsApp + o notificador no servidor.
+# compose.yaml - BUILD das imagens (no PC de desenvolvimento) e execução local.
 #
-#   docker compose up -d --build
-#   docker compose run --rm notificador --parear      # 1ª vez: QR Code no terminal
-#   docker compose logs -f notificador
+#   docker compose build && docker compose push     # envia para o Docker Hub (hiannyurt)
+#   docker compose up -d                            # rodar localmente
 #
+# No SERVIDOR use compose.servidor.yaml (só baixa as imagens prontas, sem build).
 # Configuração no arquivo .env (mesmo diretório). Veja .env.example.
 
 services:
   whatsapp-api:
-    build: ./gateway
+    build:
+      context: ./gateway
+      platforms: ["linux/amd64"]   # servidores Linux comuns (x86_64)
     image: hiannyurt/whatsapp-api:1.34.7
     restart: unless-stopped
     environment:
@@ -26,8 +28,10 @@ services:
     # Sem "ports": a API do WhatsApp fica acessível só pelo notificador, dentro da rede do compose.
 
   notificador:
-    build: .
-    image: sentinela/notificador:1.0.0
+    build:
+      context: .
+      platforms: ["linux/amd64"]
+    image: hiannyurt/sentinela-notificador:1.0.0
     restart: unless-stopped
     env_file: .env
     environment:
