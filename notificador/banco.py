@@ -97,6 +97,10 @@ class Banco:
         corte = datetime.now() - timedelta(minutes=janela_min)
         return self._executar(_SQL_PENDENCIAS, (corte, max_tentativas)).fetchall()
 
+    def contatos(self) -> List[Dict[str, Any]]:
+        """Todos os contatos de emergência (para avisos que não são de um alerta, ex.: câmera sem sinal)."""
+        return self._executar("SELECT id, nome, telefone FROM contato_emergencia ORDER BY id").fetchall()
+
     def registrar(self, alerta_id: int, contato_id: int, status: str,
                   chat_id: Optional[str] = None, erro: Optional[str] = None) -> None:
         self._executar(_SQL_REGISTRAR, (alerta_id, contato_id, chat_id, status, (erro or "")[:500] or None))

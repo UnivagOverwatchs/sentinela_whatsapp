@@ -65,3 +65,18 @@ def test_sem_token_configurado_post_fica_desligado():
         assert chamar(f"http://127.0.0.1:{servidor.server_address[1]}/notificar", "POST", token="x")[0] == 503
     finally:
         servidor.shutdown()
+
+
+def test_aviso_exige_token_e_texto(ambiente):
+    _, base = ambiente
+    assert chamar(base + "/aviso", "POST", corpo={"texto": "oi"})[0] == 401
+    assert chamar(base + "/aviso", "POST", token="segredo-teste", corpo={"texto": "  "})[0] == 400
+    assert chamar(base + "/aviso", "POST", token="segredo-teste", corpo={"texto": "x" * 1001})[0] == 400
+
+
+def test_aviso_agenda_e_acorda_o_laco(ambiente):
+    notificador, base = ambiente
+    codigo, dados = chamar(base + "/aviso", "POST", token="segredo-teste", corpo={"texto": "Câmera Quarto 2 sem sinal"})
+    assert codigo == 202 and dados["status"] == "agendado"
+    assert notificador.acordar.is_set()
+    assert notificador._avisos.get_nowait() == "Câmera Quarto 2 sem sinal"

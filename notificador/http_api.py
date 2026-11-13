@@ -4,6 +4,8 @@ http_api.py - Pequena API HTTP do notificador (só biblioteca padrão, sem frame
     GET  /saude      -> estado do serviço (último ciclo e sessão do WhatsApp). Sem token.
     POST /notificar  -> o Sentinela avisa que gravou um alerta; o laço acorda e envia na hora.
                         Exige "Authorization: Bearer <NOTIF_TOKEN>". Corpo opcional: {"alerta_id": 12}.
+    POST /aviso      -> texto livre para todos os contatos (ex.: "câmera sem sinal"). Mesmo token.
+                        Corpo: {"texto": "..."} (1 a 1000 caracteres).
 
 Por que o POST não envia direto? Quem envia é sempre o laço (uma única thread usando o banco),
 o que evita mensagens duplicadas. O POST só "acorda" o laço; se ele se perder, a verificação
@@ -38,22 +40,42 @@ def criar_servidor(notificador, porta: int, host: str = "0.0.0.0") -> ThreadingH
                                   "modo_teste": notificador.cfg.modo_teste,
                                   "ultimo_ciclo": notificador.ultimo_ciclo})
 
-        def do_POST(self):  # noqa: N802
-            if self.path != "/notificar":
-                return self._responder(404, {"erro": "rota não encontrada"})
+        def _autorizado(self) -> bool:
+            """Responde 503/401 e devolve False se o token não confere."""
             if not token:
-                return self._responder(503, {"erro": "NOTIF_TOKEN não configurado"})
+                self._responder(503, {"erro": "NOTIF_TOKEN não configurado"})
+                return False
             recebido = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
             # compare_digest: comparação em tempo constante (não vaza o token por tempo de resposta).
             if not hmac.compare_digest(recebido.encode(), token.encode()):
-                return self._responder(401, {"erro": "token inválido"})
+                self._responder(401, {"erro": "token inválido"})
+                return False
+            return True
+
+        def _ler_json(self) -> dict:
             tamanho = min(int(self.headers.get("Content-Length") or 0), 10_000)
             corpo = self.rfile.read(tamanho) if tamanho else b""
             try:
-                alerta_id = json.loads(corpo or b"{}").get("alerta_id")
-            except (ValueError, AttributeError):
-                alerta_id = None
-            log.info("Aviso do Sentinela recebido (alerta %s)", alerta_id or "?")
+                dados = json.loads(corpo or b"{}")
+            except ValueError:
+                return {}
+            return dados if isinstance(dados, dict) else {}
+
+        def do_POST(self):  # noqa: N802
+            if self.path not in ("/notificar", "/aviso"):
+                return self._responder(404, {"erro": "rota não encontrada"})
+            if not self._autorizado():
+                return None
+            dados = self._ler_json()
+            if self.path == "/aviso":
+                texto = dados.get("texto")
+                if not isinstance(texto, str) or not texto.strip() or len(texto) > 1000:
+                    return self._responder(400, {"erro": "texto obrigatório (1 a 1000 caracteres)"})
+                if not notificador.agendar_aviso(texto.strip()):
+                    return self._responder(503, {"erro": "fila de avisos cheia"})
+                log.info("Aviso de texto recebido do Sentinela")
+                return self._responder(202, {"status": "agendado"})
+            log.info("Aviso do Sentinela recebido (alerta %s)", dados.get("alerta_id") or "?")
             notificador.acordar.set()
             self._responder(202, {"status": "agendado"})
 
@@ -66,5 +88,5 @@ def criar_servidor(notificador, porta: int, host: str = "0.0.0.0") -> ThreadingH
 def iniciar_em_segundo_plano(notificador, porta: int) -> ThreadingHTTPServer:
     servidor = criar_servidor(notificador, porta)
     threading.Thread(target=servidor.serve_forever, name="http", daemon=True).start()
-    log.info("API HTTP em :%s (GET /saude, POST /notificar%s)", porta, "" if notificador.cfg.token else " DESLIGADO: sem NOTIF_TOKEN")
+    log.info("API HTTP em :%s (GET /saude, POST /notificar e /aviso%s)", porta, "" if notificador.cfg.token else " DESLIGADO: sem NOTIF_TOKEN")
     return servidor

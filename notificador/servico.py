@@ -7,6 +7,7 @@ Recebe banco, cliente do WhatsApp e a função que busca a foto por parâmetro
 
 import logging
 import os
+import queue
 import threading
 import time
 from collections import OrderedDict
@@ -54,6 +55,52 @@ class Notificador:
         self.acordar = threading.Event()
         # Resumo do último ciclo, lido pelo GET /saude (o banco só é usado pela thread do laço).
         self.ultimo_ciclo = {"ok": None, "em": None, "enviados": 0, "erro": None}
+        # Avisos de texto (POST /aviso, ex.: "câmera sem sinal"). Quem envia é o laço, como os alertas.
+        # Fila limitada: se o WhatsApp estiver fora e chegarem muitos avisos, os excedentes são descartados.
+        self._avisos: "queue.Queue[str]" = queue.Queue(maxsize=50)
+
+    # ------------------------------------------------------------ avisos de texto
+    def agendar_aviso(self, texto: str) -> bool:
+        """Chamado pela API HTTP. Devolve False se a fila estiver cheia."""
+        try:
+            self._avisos.put_nowait(texto)
+        except queue.Full:
+            return False
+        self.acordar.set()
+        return True
+
+    def enviar_avisos(self) -> int:
+        """Envia os avisos da fila a TODOS os contatos. Sem registro no banco nem nova tentativa:
+        um aviso de câmera perdido é menos grave que repetir mensagens; o painel também avisa por push."""
+        enviados = 0
+        while True:
+            try:
+                texto = self._avisos.get_nowait()
+            except queue.Empty:
+                return enviados
+            for contato in self.banco.contatos():
+                enviados += self._avisar_contato(contato, texto)
+
+    def _avisar_contato(self, contato: Dict[str, Any], texto: str) -> int:
+        rotulo = f"aviso -> {contato['nome']}"
+        numero = normalizar(contato["telefone"], self.cfg.ddd_padrao, self.cfg.pais)
+        if not numero:
+            return 0
+        try:
+            if numero not in self._ids:
+                self._ids[numero] = self.whatsapp.id_whatsapp(numero)
+            chat_id = self._ids[numero]
+            if not chat_id:
+                return 0
+            if self.cfg.modo_teste:
+                log.info("%s: [MODO TESTE] não enviado", rotulo)
+                return 0
+            self.whatsapp.enviar_texto(chat_id, texto)
+            log.info("%s: enviado", rotulo)
+            return 1
+        except ErroWhatsApp as erro:
+            log.warning("%s: falhou: %s", rotulo, erro)
+            return 0
 
     # ------------------------------------------------------------ um ciclo
     def ciclo(self) -> int:
@@ -125,7 +172,7 @@ class Notificador:
         while True:
             self.acordar.clear()
             try:
-                enviados = self.ciclo()
+                enviados = self.ciclo() + self.enviar_avisos()
                 self.ultimo_ciclo = {"ok": True, "em": time.strftime("%Y-%m-%dT%H:%M:%S"),
                                      "enviados": enviados, "erro": None}
                 espera = self.cfg.intervalo_s
