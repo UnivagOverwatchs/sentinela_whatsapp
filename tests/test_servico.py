@@ -119,3 +119,24 @@ def test_texto_da_mensagem():
     assert "06/11/2026 às 14:32:05" in texto
     assert "Olá, Felipe." in texto
     assert texto.endswith("Painel: http://sentinela.local")
+
+
+class BancoComContatos(BancoFalso):
+    def contatos(self):
+        return [{"id": 1, "nome": "Felipe", "telefone": "(65) 99876-5432"},
+                {"id": 2, "nome": "Bombeiros", "telefone": "193"}]  # número inválido: ignorado
+
+
+def test_aviso_de_texto_vai_para_todos_os_contatos_validos(cfg):
+    whatsapp = WhatsAppFalso()
+    n = Notificador(BancoComContatos([]), whatsapp, cfg, lambda a: None)
+    assert n.agendar_aviso("Câmera Quarto 2 sem sinal")
+    assert n.enviar_avisos() == 1
+    assert whatsapp.enviados == [("texto", "5565998765432@c.us", "Câmera Quarto 2 sem sinal")]
+    assert n.enviar_avisos() == 0  # a fila esvaziou
+
+
+def test_aviso_com_whatsapp_fora_nao_derruba_o_laco(cfg):
+    n = Notificador(BancoComContatos([]), WhatsAppFalso(falhar=True), cfg, lambda a: None)
+    n.agendar_aviso("x")
+    assert n.enviar_avisos() == 0

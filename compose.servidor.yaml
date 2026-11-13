@@ -27,13 +27,21 @@ services:
     # Sem "ports": a API do WhatsApp fica acessível só pelo notificador, dentro da rede do compose.
 
   notificador:
-    image: hiannyurt/sentinela-notificador:1.0.0
+    image: hiannyurt/sentinela-notificador:1.0.1
     restart: unless-stopped
     env_file: .env
     environment:
       WHATSAPP_API_URL: http://whatsapp-api:3000
+      # Fotos: o banco guarda caminhos como /app/alertas_queda/x.jpg (pasta do painel montada abaixo).
+      SENTINELA_PASTA: /app
     ports:
-      - "8100:8100"   # POST /notificar (chamado pelo Sentinela) e GET /saude
+      # Só no próprio servidor: o painel (mesma VPS) chama POST /notificar e /aviso; a internet não alcança
+      # (o token não trafega aberto). Para um computador externo, troque por "8100:8100" e libere no
+      # firewall só o IP dele.
+      - "127.0.0.1:8100:8100"
+    volumes:
+      # Pasta de fotos do painel, só leitura: a mensagem sai com a foto mesmo com o login do painel ligado.
+      - ${PASTA_FOTOS_PAINEL:-/opt/sentinela/dados/alertas}:/app/alertas_queda:ro
     depends_on:
       whatsapp-api:
         condition: service_healthy
