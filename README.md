@@ -11,7 +11,11 @@ Servidor A: Sentinela (DetectHumans) ──grava──▶ PostgreSQL ◀──l�
 ```
 
 O aviso `POST /notificar` faz o envio sair **na hora**; se ele falhar (rede), o notificador encontra
-o alerta sozinho na verificação do banco a cada 3 s.
+o alerta sozinho na verificação do banco a cada 3 s. `POST /aviso` (mesmo token) envia um texto livre a todos
+os contatos; o painel usa para "câmera sem sinal" e "câmera voltou".
+
+> Recomendado: notificador **na mesma VPS do painel**. O compose publica a porta só em `127.0.0.1:8100`
+> e monta a pasta de fotos do painel só para leitura (`PASTA_FOTOS_PAINEL`, padrão `/opt/sentinela/dados/alertas`).
 
 ## Como funciona
 
@@ -72,12 +76,13 @@ Atualizar o servidor depois de um novo push: `pull` e `up -d` de novo (a sessão
 | Serviço | Imagem | Porta |
 |---|---|---|
 | `whatsapp-api` | `gateway/Dockerfile`: whatsapp-api + whatsapp-web.js 1.34.7 + correções, usuário sem root | interna (não exposta) |
-| `notificador` | `Dockerfile`: Python 3.12 slim, usuário sem root | `8100` (`/notificar`, `/saude`) |
+| `notificador` | `Dockerfile`: Python 3.12 slim, usuário sem root | `127.0.0.1:8100` (`/notificar`, `/aviso`, `/saude`) |
 
 - A sessão do WhatsApp fica no volume `whatsapp_sessoes` (sobrevive a reinícios e atualizações).
 - Gere o token com `python -c "import secrets; print(secrets.token_urlsafe(32))"` e use o **mesmo valor**
   em `NOTIF_TOKEN` (aqui) e `NOTIFICADOR_TOKEN` (Sentinela).
-- Libere a porta 8100 no firewall **só para o IP do servidor do Sentinela**.
+- A porta 8100 fica só no próprio servidor. Se o Sentinela estiver em **outra** máquina, troque no compose
+  por `"8100:8100"` e libere a porta no firewall **só para o IP dele**.
 - Logs: `docker compose -f compose.servidor.yaml logs -f notificador`.
 
 ### Ligando o Sentinela
@@ -85,7 +90,7 @@ Atualizar o servidor depois de um novo push: `pull` e `up -d` de novo (a sessão
 No `.env` do Sentinela (DetectHumans):
 
 ```env
-NOTIFICADOR_URL=http://IP-DO-SERVIDOR-B:8100
+NOTIFICADOR_URL=http://127.0.0.1:8100        # mesma VPS (ou http://IP-DO-SERVIDOR-B:8100)
 NOTIFICADOR_TOKEN=<mesmo valor de NOTIF_TOKEN>
 # WHATSAPP_URL=   (deixe vazio: era o envio antigo para um número fixo)
 ```
@@ -146,14 +151,14 @@ Para validar sem mandar mensagens: `NOTIF_MODO_TESTE=true` no `.env`.
 python -m pytest -v
 ```
 
-23 testes, sem rede externa e sem banco: telefone, texto da mensagem, leitura do `.env`
+27 testes, sem rede externa e sem banco: telefone, texto da mensagem, leitura do `.env`
 (comentário no fim da linha), laço com banco/WhatsApp falsos (envio com/sem foto, número inválido,
-sem WhatsApp, falha da API, modo teste, cache de números) e a API HTTP (token, `/notificar`, `/saude`).
+sem WhatsApp, falha da API, modo teste, cache de números) avisos de texto e a API HTTP (token, `/notificar`, `/aviso`, `/saude`).
 
 ## Segurança e LGPD
 
 - `.env` (senha do banco, chave da API e token) fica fora do git e fora da imagem Docker (`.dockerignore`).
-- `POST /notificar` exige token (comparação em tempo constante); sem `NOTIF_TOKEN` a rota fica desligada.
+- `POST /notificar` e `POST /aviso` exigem token (comparação em tempo constante); sem `NOTIF_TOKEN` a rota fica desligada.
 - A API do WhatsApp deve ficar acessível só na rede interna e sempre com `API_KEY`.
 - A mensagem traz só local, horário e a foto do momento; nenhum vídeo é enviado.
 - A conta de WhatsApp usada deve ser da instituição, não pessoal (whatsapp-web.js não é API oficial;
